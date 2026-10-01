@@ -35,6 +35,39 @@ const UTTERANCE_EXPIRY_MS = 12000;
 const ELEMENT_NODE = 1; // Node.ELEMENT_NODE — spelled out so Node.js needs no DOM stub
 
 /**
+ * Words Meet uses in the aria-label of its caption area, per locale.
+ *
+ * Both selectors below are built from this one list. They used to be spelled
+ * out separately, and the role="region" selector carried only the English
+ * "caption"/"subtitle" — so on a German Meet the caption region
+ * (aria-label="Untertitel") matched nothing, every strategy fell through and
+ * capture sat in "Warte auf Untertitel…" forever while captions were plainly
+ * on screen. Any locale added here must be added only here.
+ */
+const CAPTION_LABEL_WORDS = [
+  'caption', 'subtitle',        // en
+  'untertitel',                 // de
+  'sous-titre',                 // fr
+  'sottotitoli',                // it
+  'subtítulo', 'subtitulo',     // es
+  'legenda',                    // pt
+  'ondertiteling',              // nl
+  'napisy',                     // pl
+  'субтитры',                   // ru
+  '字幕',                        // ja / zh
+  '자막',                        // ko
+];
+
+/** Anything carrying a caption label — used to recognise a region by ancestry. */
+const CAPTION_LABELLED_SELECTOR =
+  CAPTION_LABEL_WORDS.map(w => `[aria-label*="${w}" i]`).join(', ') +
+  ', [jsname="tgaKEf"], [jsname="DS9Ooe"]';
+
+/** The captions landmark itself: role="region" plus a caption label. */
+const CAPTION_REGION_SELECTOR =
+  CAPTION_LABEL_WORDS.map(w => `[role="region"][aria-label*="${w}" i]`).join(', ');
+
+/**
  * Does this aria-live element plausibly hold captions rather than Meet's UI
  * status announcements?
  *
@@ -50,11 +83,7 @@ const ELEMENT_NODE = 1; // Node.ELEMENT_NODE — spelled out so Node.js needs no
 function looksLikeCaptionRegion(el) {
   if (!el) return false;
 
-  const labelled = el.closest(
-    '[aria-label*="caption" i], [aria-label*="untertitel" i], [aria-label*="subtitle" i], ' +
-    '[aria-label*="sous-titre" i], [aria-label*="sottotitoli" i], [aria-label*="subtítulo" i], ' +
-    '[jsname="tgaKEf"], [jsname="DS9Ooe"]'
-  );
+  const labelled = el.closest(CAPTION_LABELLED_SELECTOR);
   if (labelled) return true;
 
   for (const block of el.children) {
@@ -227,6 +256,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     DEBUG, INFO, LOG,
     MIN_OVERLAP_CHARS, UTTERANCE_EXPIRY_MS,
+    CAPTION_LABEL_WORDS, CAPTION_LABELLED_SELECTOR, CAPTION_REGION_SELECTOR,
     looksLikeCaptionRegion, extractByJsname, extractByPosition, extractTextOnly,
     MEET_ANNOUNCEMENT_RE, isMeetAnnouncement, isSentenceFragment, overlapLength,
   };

@@ -166,11 +166,21 @@ The extension clicks Meet's own controls (CC button, details panel, settings dia
 
 ## Google Meet DOM selectors
 
-`content.js` uses a three-layer resilience strategy because Meet uses obfuscated CSS class names that change with deployments:
+`content.js` uses a four-layer resilience strategy because Meet uses obfuscated CSS class names that change with deployments:
 
 1. **`jsname` attributes** (primary) — more stable than class names
 2. **`aria-live` region** (fallback) — Meet always marks its CC widget as polite
-3. **Structural heuristics** (last resort) — infers speaker/text from DOM shape
+3. **`role="region"` landmark** — the caption area carries `aria-label="Captions"` / `"Untertitel"` / …
+4. **Structural heuristics** (last resort) — infers speaker/text from DOM shape
+
+Layer 3 matches **localized** labels. The list of caption words lives once in
+`CAPTION_LABEL_WORDS` (`utils/caption-core.js`) and builds both
+`CAPTION_REGION_SELECTOR` and `CAPTION_LABELLED_SELECTOR` — add a locale only
+there. English-only matching here is what broke capture on a German Meet in
+2026-10 (`tests/caption-region.test.js`): Meet had dropped every known `jsname`
+*and* moved the captions out of an `aria-live` container into a
+`role="region"` landmark, so layer 3 was the only one left — and it did not
+speak German.
 
 The current `jsname` values in `SELECTORS` (top of `content.js`):
 - `tgaKEf` — caption window container
@@ -178,7 +188,7 @@ The current `jsname` values in `SELECTORS` (top of `content.js`):
 - `r4nke` — speaker name span
 - `bVV8Bd` — caption text span
 
-**If captions stop working after a Meet update:** enable CC in Meet, open DevTools → Elements, search for the live caption text, and trace up to find the new `jsname` values. Update the `SELECTORS` object in `content.js`.
+**If captions stop working after a Meet update:** paste `docs/meet-diag.js` into the DevTools console of the affected Meet tab while captions are visible. It dumps the `jsname` hit counts, every `aria-live` element, the `role="region"` landmarks and the caption-related buttons, and offers `__mtRegion()` / `__mtWatch()` / `__mtPath("…")` for the DOM structure around a live caption. Its header says how to read the result. The file ships to nobody — the release zip lists its contents explicitly.
 
 ### Debug logging
 

@@ -37,13 +37,12 @@ const STRATEGIES = [
     findContainer: () => findAriaLiveContainer(),
     extractSpeakers: (container) => extractByPosition(container),
   },
-  // Strategy D: role="region" with captions label
+  // Strategy D: role="region" with a captions label, in any of the locales
+  // listed in CAPTION_LABEL_WORDS (caption-core.js). English-only matching here
+  // is what made a German Meet undetectable once the jsname values changed.
   {
     name: 'role-region',
-    findContainer: () => document.querySelector(
-      '[role="region"][aria-label*="caption" i], ' +
-      '[role="region"][aria-label*="subtitle" i]'
-    ),
+    findContainer: () => document.querySelector(CAPTION_REGION_SELECTOR),
     extractSpeakers: (container) => extractByPosition(container),
   },
   // Strategy E: text-only fallback — no speaker attribution, just deduplicated
