@@ -169,7 +169,7 @@ function broadcastToPopup(msg) {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   handleMessage(msg, sender).then(sendResponse).catch((err) => {
     console.error('[MeetTranscript] background error:', err);
-    sendResponse({ error: err.message });
+    sendResponse({ error: 'No se pudo completar la operación. Inténtalo de nuevo.' });
   });
   return true; // keep channel open
 });
@@ -178,7 +178,7 @@ async function handleMessage(msg, sender) {
   switch (msg.type) {
     case 'START_CAPTURE': {
       const tab = await getActiveTab();
-      if (!tab) return { error: 'No active Meet tab found.' };
+      if (!tab) return { error: 'No se encontró una pestaña activa de Google Meet.' };
 
       const title = await getMeetingTitle(tab.id);
 
@@ -205,7 +205,10 @@ async function handleMessage(msg, sender) {
       } catch {
         await patchState({ isCapturing: false, capturePhase: 'idle' }, { immediate: true });
         await updateBadge();
-        return { error: 'Could not reach the Meet tab. Please refresh the tab and try again.' };
+        return {
+          errorCode: 'MEET_TAB_UNREACHABLE',
+          error: 'No se pudo conectar con la pestaña de Meet. Recárgala e inténtalo de nuevo.',
+        };
       }
     }
 
@@ -237,14 +240,14 @@ async function handleMessage(msg, sender) {
 
     case 'GET_TRANSCRIPT_CONTENT': {
       const state = await ensureState();
-      if (state.lines.length === 0) return { error: 'No lines captured yet.' };
+      if (state.lines.length === 0) return { error: 'Todavía no hay intervenciones capturadas.' };
       const content = formatAIPrompt(state.lines, state.meetingTitle, state.startTime, state.meetingInfo);
       return { status: 'ok', content };
     }
 
     case 'DOWNLOAD_TRANSCRIPT': {
       const state = await ensureState();
-      if (state.lines.length === 0) return { error: 'No lines captured yet.' };
+      if (state.lines.length === 0) return { error: 'Todavía no hay intervenciones capturadas.' };
 
       // Persist the latest state before handing a copy to the download.
       await flushNow();
@@ -328,7 +331,7 @@ async function handleMessage(msg, sender) {
     }
 
     default:
-      return { error: `Unknown message type: ${msg.type}` };
+      return { error: 'Tipo de mensaje desconocido.' };
   }
 }
 
