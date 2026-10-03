@@ -90,7 +90,8 @@ async function patchState(patch, { immediate = false } = {}) {
 
 // ---------------------------------------------------------------------------
 // Port connections
-// content-script port: keeps the SW alive during capture, receives CAPTION_LINE
+// content-script port: receives CAPTION_LINE; messages reset the MV3 idle timer,
+// but merely holding the port open does not prevent service-worker suspension.
 // popup port: pushes live line count updates to the popup
 // ---------------------------------------------------------------------------
 const popupPorts = new Set();
@@ -139,10 +140,15 @@ chrome.runtime.onConnect.addListener((port) => {
  * Mutates `state.lines` directly (the cache is the single source of truth).
  */
 function appendCaptionLine(state, msg) {
+  const identity = typeof msg.utteranceId === 'string' && msg.utteranceId.trim()
+    ? { utteranceId: msg.utteranceId } : {};
   if (msg.replaceLastLine && state.lines.length > 0) {
     const lastIdx = state.lines.map((l) => l.speaker).lastIndexOf(msg.speaker);
-    if (lastIdx !== -1) {
+    const previousIdentity = state.lines[lastIdx]?.utteranceId;
+    if (lastIdx !== -1 && (!identity.utteranceId ||
+        (previousIdentity && identity.utteranceId === previousIdentity))) {
       state.lines[lastIdx] = {
+        ...identity,
         speaker: msg.speaker,
         text: msg.text,
         timestamp: state.lines[lastIdx].timestamp,
@@ -150,7 +156,7 @@ function appendCaptionLine(state, msg) {
       return;
     }
   }
-  state.lines.push({ speaker: msg.speaker, text: msg.text, timestamp: msg.timestamp });
+  state.lines.push({ speaker: msg.speaker, text: msg.text, timestamp: msg.timestamp, ...identity });
 }
 
 function broadcastToPopup(msg) {
