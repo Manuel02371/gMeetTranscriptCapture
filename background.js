@@ -18,6 +18,7 @@
  */
 
 import { formatTxt, formatMd, formatAIPrompt, buildFilename } from './utils/formatter.js';
+import { cleanTranscriptForExport } from './utils/transcript-cleanup.js';
 
 // ---------------------------------------------------------------------------
 // State: in-memory cache + batched persistence
@@ -159,6 +160,28 @@ function appendCaptionLine(state, msg) {
   state.lines.push({ speaker: msg.speaker, text: msg.text, timestamp: msg.timestamp, ...identity });
 }
 
+/** Append only a reply belonging to the same capture array. A new start or
+ * discard can run while tabs.sendMessage is pending; never restore old text. */
+function appendFlushedCaptions(state, response, captureLines) {
+  if (state.lines !== captureLines || !Array.isArray(response?.captions)) return;
+  let received = false;
+  for (const caption of response.captions) {
+    if (caption?.type !== 'CAPTION_LINE' || typeof caption.speaker !== 'string' ||
+        typeof caption.text !== 'string' || !caption.text.trim() ||
+        !Number.isFinite(caption.timestamp)) continue;
+    appendCaptionLine(state, caption);
+    received = true;
+  }
+  if (received) {
+    if (state.isCapturing) {
+      state.capturePhase = 'capturing';
+      state.ccWarning = false;
+    }
+    broadcastToPopup({ type: 'LINE_ADDED', lineCount: state.lines.length });
+    scheduleBadgeUpdate();
+  }
+}
+
 function broadcastToPopup(msg) {
   for (const port of popupPorts) {
     try {
@@ -222,16 +245,19 @@ async function handleMessage(msg, sender) {
       const state = await ensureState();
       if (!state.isCapturing) return { status: 'not_capturing' };
 
+      const captureLines = state.lines;
       await patchState({ isCapturing: false, capturePhase: 'idle', ccWarning: false }, { immediate: true });
-      await updateBadge();
 
       if (state.tabId) {
         try {
-          await chrome.tabs.sendMessage(state.tabId, { type: 'STOP_CAPTURE' });
+          const response = await chrome.tabs.sendMessage(state.tabId, { type: 'STOP_CAPTURE' });
+          appendFlushedCaptions(state, response, captureLines);
         } catch {
           // Tab may have been closed
         }
       }
+      await flushNow();
+      await updateBadge();
       return { status: 'ok', lineCount: state.lines.length };
     }
 
@@ -253,16 +279,30 @@ async function handleMessage(msg, sender) {
 
     case 'DOWNLOAD_TRANSCRIPT': {
       const state = await ensureState();
+      if (state.isCapturing && state.tabId) {
+        const captureLines = state.lines;
+        try {
+          const response = await chrome.tabs.sendMessage(state.tabId, { type: 'FLUSH_CAPTIONS' });
+          appendFlushedCaptions(state, response, captureLines);
+        } catch {
+          // Closed/unreachable tab: the already stored transcript is exportable.
+        }
+      }
       if (state.lines.length === 0) return { error: 'Todavía no hay intervenciones capturadas.' };
 
       // Persist the latest state before handing a copy to the download.
       await flushNow();
 
       const format = msg.format || 'txt';
+      // Cleanup is an export-only snapshot. Preserve the raw end time: merging
+      // revisions retains the first timestamp and must not shorten duration.
+      const snapshot = state.lines.map(line => ({ ...line }));
+      const endTime = snapshot[snapshot.length - 1]?.timestamp ?? state.startTime;
+      const exportLines = cleanTranscriptForExport(snapshot);
       const content =
         format === 'md'
-          ? formatMd(state.lines, state.meetingTitle, state.startTime, state.meetingInfo)
-          : formatTxt(state.lines, state.meetingTitle, state.startTime, state.meetingInfo);
+          ? formatMd(exportLines, state.meetingTitle, state.startTime, state.meetingInfo, endTime)
+          : formatTxt(exportLines, state.meetingTitle, state.startTime, state.meetingInfo, endTime);
 
       const filename = buildFilename(state.startTime, format);
 

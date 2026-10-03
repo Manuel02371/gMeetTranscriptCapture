@@ -588,6 +588,8 @@ function extractParticipantsFromPeoplePanel(info) {
 // Port to background (message delivery; an idle port does not keep MV3 alive)
 // ---------------------------------------------------------------------------
 let bgPort = null;
+// Synchronous flush replies carry pending lines without racing port shutdown.
+let captionReplyBuffer = null;
 
 function openPort() {
   if (bgPort) return;
@@ -615,9 +617,11 @@ function closePort() {
 }
 
 function sendCaption(speaker, text, timestamp, replaceLastLine = false, utteranceId) {
-  if (bgPort) {
+  if (bgPort || captionReplyBuffer) {
     linesCommitted++;
-    bgPort.postMessage({ type: 'CAPTION_LINE', speaker, text, timestamp, replaceLastLine, utteranceId });
+    const message = { type: 'CAPTION_LINE', speaker, text, timestamp, replaceLastLine, utteranceId };
+    if (captionReplyBuffer) captionReplyBuffer.push(message);
+    else bgPort.postMessage(message);
     // Enable unload guard on first actual caption data
     if (!hasUnsavedTranscript) enableUnloadGuard();
   }
@@ -779,6 +783,20 @@ function stopObserver() {
     clearTimeout(buf.timer);
     commitLine(speaker);
   }
+}
+
+/** Commit synchronously into a reply so background receives the final buffer
+ * even when its port listener has already stopped accepting capture messages. */
+function collectCaptionFlush(stop = false) {
+  const captions = [];
+  captionReplyBuffer = captions;
+  try {
+    if (stop) stopObserver();
+    else for (const speaker of speakerBuffers.keys()) commitLine(speaker);
+  } finally {
+    captionReplyBuffer = null;
+  }
+  return captions;
 }
 
 // ---------------------------------------------------------------------------
@@ -1242,12 +1260,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
   if (msg.type === 'STOP_CAPTURE') {
     isCapturing = false;
-    stopObserver();
+    const captions = collectCaptionFlush(true);
     stopScan();
     closePort();
     // Keep unload guard active — transcript still needs to be downloaded
     INFO('Capture stopped');
-    sendResponse({ status: 'ok' });
+    sendResponse({ status: 'ok', captions });
+  }
+
+  if (msg.type === 'FLUSH_CAPTIONS') {
+    sendResponse({ status: 'ok', captions: collectCaptionFlush() });
   }
 
   if (msg.type === 'TRANSCRIPT_DOWNLOADED' || msg.type === 'TRANSCRIPT_CLEARED') {

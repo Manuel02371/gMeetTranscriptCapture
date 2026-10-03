@@ -96,9 +96,10 @@ function buildMeetingInfoBlock(meetingInfo, format, fallbackParticipants = []) {
 
 /**
  * Format an array of CaptionLines into a plain-text transcript.
+ * Optional endTime preserves raw transcript duration after export-only cleanup.
  */
-export function formatTxt(lines, meetingTitle, startTime, meetingInfo = null) {
-  const endTime = lines.length > 0 ? lines[lines.length - 1].timestamp : startTime;
+export function formatTxt(lines, meetingTitle, startTime, meetingInfo = null,
+  endTime = lines.length > 0 ? lines[lines.length - 1].timestamp : startTime) {
   const duration = formatDuration(endTime - startTime);
   const divider = '─'.repeat(50);
   const localUser = meetingInfo?.localUser;
@@ -125,9 +126,10 @@ export function formatTxt(lines, meetingTitle, startTime, meetingInfo = null) {
 
 /**
  * Format an array of CaptionLines into a Markdown transcript.
+ * Optional endTime preserves raw transcript duration after export-only cleanup.
  */
-export function formatMd(lines, meetingTitle, startTime, meetingInfo = null) {
-  const endTime = lines.length > 0 ? lines[lines.length - 1].timestamp : startTime;
+export function formatMd(lines, meetingTitle, startTime, meetingInfo = null,
+  endTime = lines.length > 0 ? lines[lines.length - 1].timestamp : startTime) {
   const duration = formatDuration(endTime - startTime);
   const localUser = meetingInfo?.localUser;
   const fallback = speakersFromLines(lines, localUser);
